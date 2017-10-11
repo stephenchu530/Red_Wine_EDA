@@ -1,0 +1,1204 @@
+---
+title: "Red Wine Exploratory Data Analysis"
+author: Stephen Chu
+date: April 16, 2017
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+Red Wine Exploratory Data Analysis by Stephen Chu
+========================================================
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+```{r echo=FALSE, Load_Libraries}
+# Load all of the packages that you end up using in your analysis in this code
+# chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk. This
+# prevents the code from displaying in the knitted HTML output. You should set
+# echo=FALSE for all code chunks in your file, unless it makes sense for your
+# report to show the code that generated a particular plot.
+
+# The other parameters for "message" and "warning" should also be set to FALSE
+# for other code chunks once you have verified that each plot comes out as you
+# want it to. This will clean up the flow of your report.
+
+library(ggplot2)
+library(GGally)
+library(grid)
+library(gridExtra)
+library(scales)
+library(RColorBrewer)
+```
+
+This EDA is as the title implies, about red wine. There are a number of reasons
+why this EDA will be interesting, but mainly because this is my first EDA using
+R and RStudio. And second because I have never drank red wine nor any wine at
+all. There will be some obvious challenges. So a forewarning to the reader: I
+made judicious use of online searches to help me build up a useable vocabulary
+and background knowledge for this topic. At several points in the EDA, I will
+provide direct links to my sources, but for the most part I will relegate my
+comments as common knowledge in the world of red wines.
+
+This EDA was motivated by the Data Analysis course at Udacity Online. The data
+set is available though a research study on Red Wines by Corez et al. The
+following was the provided source citation for the research:
+
+    P. Cortez, A. Cerdeira, F. Almeida, T. Matos and J. Reis. 
+    Modeling wine preferences by data mining from physicochemical properties.
+    In Decision Support Systems, Elsevier, 47(4):547-553. ISSN: 0167-9236.
+    
+The study is available online at:
+[http://www.sciencedirect.com][Science Direct]
+    
+**Overview:** The dataset contains 1599 samples of red wine produced in the
+northwestern region of Portugal called Vinho Verde. The website [Vinho Verde][Vinho Verde]
+can help prvode some background information. The dataset has 13 variables of
+which only 12 will be considered for this EDA. The first variable is simply a
+sequential key used to denote the different entries. It will be removed. The
+next 11 variables contain objective measurements of physio-chemical compounds in
+the red wines. The final variable is a subjective quality measurement performed
+by a wine expert. Each quality value is taken from the median of 3 evaluations.
+
+**Goal:** This EDA will try to determine if the physio-chemical compounds found
+in the Vinho Verde red wine influenced the quality assigned by the wine experts.
+If possible, a model may be constructed.
+
+Before moving on to the Univariate Plots, let's load the data set and take a
+quick overview.
+
+```{r Load_the_Data}
+# Load in the data set.
+rwData <- read.csv('wineQualityReds.csv')
+
+# View the variable names.
+names(rwData)
+```
+
+With the help of online searches, I'll rename some of the variables to their
+appropriate chemical names. I'll also completely remove the variable "X"
+because it only serves as a number list.
+
+```{r Check_Variable_Names}
+# Rename some of the variable names to their actual chemical names.
+rwData <- plyr::rename(rwData, c("fixed.acidity" = "tartaric.acid",
+                                 "volatile.acidity" = "acetic.acid",
+                                 "chlorides" = "sodium.chloride",
+                                 "sulphates" = "potassium.sulphate"))
+
+# Remove the number list column.
+rwData <- subset(rwData, select = -c(X))
+```
+
+Let's look at the structure and summary.
+
+```{r Structure_and_Summary}
+# Display data set structure.
+str(rwData)
+
+# Display data set summary.
+summary(rwData)
+```
+
+The only oddity that stands out from the data set structure is the "quality"
+variable. It is of integer type so there is no decimal value. Perhaps later in
+this EDA, I may need to consider changing this variable to a factor.
+
+The summary does show some extreme maximum values. For example, "residual.sugar"
+shows a maximum of 15.500 even though the minimum is 0.900 and the 3rd quantile
+is only 2.600. A few of the variables exhibit this behavior. They may possibly
+contain extreme outliers.
+
+***
+# Univariate Plots Section
+
+In this section, we will look at each variable individually through univariate
+plots. I'll primarily use histograms, boxplots, and barplots as neccessary. Here
+are the user defined functions I will be using for this section.
+
+```{r User_Defined_Histogram_&_Boxplot_Functions}
+# Custom histogram template.
+do_histogram <- function(varName, binwidth = 0.05) {
+  p <- ggplot(aes_string(x = varName), data = rwData) +
+    geom_histogram(aes(y =..count../sum(..count..)),
+                   binwidth = binwidth,
+                   col = "black",
+                   fill = "cyan",
+                   alpha = 0.4) +
+    ylab("Proportion")
+  return(p)
+}
+
+# Custom boxplot template.
+do_boxplot <- function(varName) {
+  p <- ggplot(aes_string(x = 'varName', y = varName), data = rwData) +
+    geom_boxplot(outlier.color = 'red',
+                 col = "black",
+                 fill = "cyan",
+                 alpha = 0.4) +
+    stat_boxplot(geom ='errorbar',
+                 width = .5) +
+    stat_summary(fun.y = mean,
+                 geom ="point",
+                 shape = 5,
+                 size = 3) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
+  return(p)
+}
+
+# Custom barplot template.
+do_barplot <- function(varName) {
+  p <- ggplot(aes_string(x = varName), data = rwData) +
+    geom_bar(aes(y = (..count..)/sum(..count..)),
+             col = "black",
+             fill = "cyan",
+             alpha = 0.4) +
+    ylab("Proportion")
+  return(p)
+}
+
+# Function used to find lower and upper boundaries for outliers.
+# Based on:
+#     Lower Bound = 1st Qu. - 1.5 x IQR
+#     Upper Bound = 3rd Qu. + 1.5 * IQR
+lu_bounds <- function(varName, transform_type = "none") {
+  switch(transform_type,
+         # Default no transformation.
+         none = {data <- rwData[, varName]},
+         # Sqrt transform.
+         sqrt = {data <- sqrt(rwData[, varName])},
+         # Log10 transform.
+         log10 = {data <- log10(rwData[, varName])})
+  # stats[c(1, 5)] find the lower and upper values.
+  lower_upper_values <- boxplot.stats(data)$stats[c(1, 5)]
+  return(lower_upper_values)
+}
+```
+
+***
+### Tartaric Acid
+
+Tartaric acid is the primary acid in red wine and contributes to the acidic
+flavor profile. It also has antimicrobial properties. According to
+[Calwineries][calwineriesT], the amount of tartaric acid decreases with the time
+the grapes are "allowed to hang on the vine and mature."
+
+Let's start by looking at the histogram for tartaric acid in the Vinho Verde
+red wine samples.
+
+```{r Tartaric_Acid}
+# Tartaric acid histogram.
+do_histogram("tartaric.acid", .2) +
+  ggtitle("Tartaric Acid") +
+  scale_x_continuous(~ g/dm^3, breaks = seq(4, 16, 1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .1, .01))
+```
+
+Visually we can see that the majority of the distribution lay between 7 to
+9 g/dm^3^, and there are a few outliers in the upper 15+ g/dm^3^ area. The
+positive skew makes sense if the intentions were to harvest all the grapes near
+the time without letting the grapes lose all their tartness.
+
+If this variable were to be used later on in a multiple regression or perhaps
+another analysis, a log~10~ transform may be necessary to adjust the
+distribution more toward normal.
+
+
+At this point, we can move on to the next variable, but I want to try to improve
+the skew and reduce the outliers right now. The intent is that in the case this
+variable is used in a regression,
+
+At this point, I can move on to the next variable, but I want to try to improve
+the skew and reduce the outliers right now. The intent is that since this
+variable can be used in a regression or other analysis later in this EDA, it is
+better to attempt this early than later.
+
+***
+### Acetic Acid
+
+Acetic acid is commonly known as vinegar. Though I personally do not partake in
+wine, I can guess that lower amounts is better for the overall wine experience.
+So generally, less acetic acid is better. Let's take a look at the distribution.
+According to [Waterhouse Lab][Waterhouse Lab], acetic acid "is a byproduct of
+microbial metabolism."
+
+```{r Acetic_Acid}
+# Acetic acid histogram.
+do_histogram("acetic.acid", .035)  +
+  ggtitle("Acetic Acid") +
+  scale_x_continuous(~ g/dm^3,
+                     breaks = seq(.1, 1.6, .1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .1, .01))
+```
+
+The shape of the distribution has a slight positive skew like tartaric acid.
+There is an outlier way out over around 1.6 g/dm^3^. The top of the curve does
+not come to the characteristic point as expected. It hints at the possibility of
+being bimodal, but without deeper understanding of the red wine making process,
+it's too difficult for me to guess why and how.
+
+And like the tartaric acid before this, a log~10~ transform may be neccessary
+before using this variable in a regression.
+
+***
+### Citric Acid
+
+In the text file that accompanied this data set, citric acid is "found in small
+quantities," and "can add 'freshness' and flavor to wines." According to
+[Calwineries][calwineriesC], the majority of the citric acid is "consumed by the
+bacterias during fermentation. The absence of citric acid would bring the
+fermentation process to a grinding halt, this almost never happens."
+
+Because citric acid has very few unique entries:
+
+```{r Citric_Acid_Unique}
+# Find number of unique entries in citric acid.
+length(unique(rwData$citric.acid))
+```
+
+I chose to use a bar plot instead of a histogram to show the distribution.
+
+```{r Citric_Acid}
+# Citric acid barplot.
+do_barplot("log10(citric.acid+1)") +
+  ggtitle("Citric Acid") +
+  scale_x_continuous(~ g/dm^3,
+                     breaks = seq(0, 1, .1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .08, .01))
+```
+
+The distribution looks highly unusual. First, it is highly positive skewed which
+also includes zero. Second, there is a lone outlier at 1.0 g/dm^3^. Third, there
+are high peaks at set intervals around 0.0, 0.25, and 0.5 g/dm^3^. This appears
+a little bit too coincidental to be random; However, I could not find any
+information specifically regarding the Vinho Verde process where they add
+citric acid to their red wines. Correcting the skew for this variable may prove
+difficult.
+
+***
+### Residual Sugar
+
+From the documentation that accompanied the data set, residual sugar is "the
+amount of sugar remaining after fermentation stops, it's rare to find wines with
+less than 1 gram/liter and wines with greater than 45 grams/liter are considered
+sweet." 1 liter is 1 dm^3^.
+
+```{r Residual_Sugar}
+# Residual sugar histogram.
+do_histogram("residual.sugar", .2) +
+  ggtitle("Residual Sugar") +
+  scale_x_continuous(~ g/dm^3,
+                     breaks = seq(0, 16, 1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .18, .02))
+```
+
+I can see the vast majority of residual sugar distribution lay between 1 to
+3 g/dm^3^. There is an extreme amount of outliers thus making this variable
+positively skewed. This is a very good candidate to use a log~10~
+transformation right now to better help understand the distribution.
+
+```{r Residual_Sugar_Transform}
+# Residual sugar log10 transform and outliers removed.
+do_histogram("log10(residual.sugar)", .021) +
+  ggtitle("Residual Sugar"~ log[10] ~ "Transformed and Outliers Removed") +
+  scale_x_continuous(~ log[10](g/dm^3),
+                     limits = lu_bounds("residual.sugar", "log10"),
+                     breaks = seq(0, .6, .05)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .18, .02))
+```
+
+After using the log~10~ transformation as well as removing and outliers, the
+distribution looks better behaved. There is some striping near the lower end,
+but that is expected due to the original distribution.
+
+***
+### Sodium Chloride
+
+Sodium chloride is commonly known as salt and it is a component in red wine.
+There is no readily available information for this component other than it may
+possibly be a product of the water used when growing the grapes. Saltiness in
+red wines is not considered pleasant.
+
+```{r Sodium_Chloride}
+# Sodium chloride histogram.
+do_histogram("sodium.chloride", .009) +
+  ggtitle("Sdoium Chloride") +
+  scale_x_continuous(~ g/dm^3,
+                     breaks = seq(0, .6, .1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .25, .05))
+```
+
+The amount of salt in the distribution reflects that there is a very minute
+amounts of salt in red wine. The shape of the distribution has the same general
+characteristics as residual sugar. That is, the majority of the distribution is
+in a thin strip, and there is a long positive tail with outliers. I will also
+transform this variable right now to help visualize its distribution.
+
+```{r Sodium_Chloride_Transform}
+# Sodium chloride log10 transform and outleirs removed.
+do_histogram("log10(sodium.chloride)", .016) +
+  ggtitle("Sodium Chloride" ~ log[10] ~ "Transformed and Outliers Removed") +
+  scale_x_continuous(~ log[10](g/dm^3),
+                     limits = lu_bounds("sodium.chloride", "log10"),
+                     breaks = seq(-1.3, -0.8, .05)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .11, .01))
+```
+
+After the using log~10~ and removing the outliers, the distribution looks much
+better.
+
+***
+### Free Sulfur Dioxide
+
+**Free Sulfur Dioxide:**
+The accompanying documentation with the data set refers to this compound as "the
+free form of SO~2~ [that] exists in equilibrium between molecular SO~2~ (as a
+dissolved gas) and bisulfite ion; It prevents microbial growth and the oxidation
+of wine."
+
+```{r Free_Sulfur_Dioxide}
+# Free sulfur dioxide histogram.
+do_histogram("free.sulfur.dioxide", 1) +
+  ggtitle("Free Sulfur Dioxide") +
+  scale_x_continuous(~ mg/dm^3,
+                     breaks = seq(0, 75, 5)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .1, .01))
+```
+
+The median and mean for free sulfur dioxide appear to be roughly between 5 to
+10 mg/dm^3^. The extreme positive skew pulls the maximum up to 72 mg/dm^3^. This
+variable is another good canidate for a log~10~ transformation if used in a
+regression.
+
+***
+### Total Sulfur Dioxide
+
+**Total Sulfur Dioxide:**
+"Amount of free and bound forms of S0~2~; In low concentrations, SO~2~ is mostly
+undetectable in wine, but at free SO~2~ concentrations over 50 ppm, SO~2~
+becomes evident in the nose and taste of wine." In other words, this is free
+sulfur dioxide and the bounded form. The bounded SO~2~ form, according to
+[Wine From Here][boundedSD], "is the part which has already done its work and
+cannot be useful any longer."
+
+```{r Total_Sulfur_Dioxide}
+# Total sulfur dioxide histogram.
+do_histogram("total.sulfur.dioxide", 4) +
+  ggtitle("Total Sulfur Dioxide") +
+  scale_x_continuous(~ mg/dm^3,
+                     breaks = seq(0, 300, 25)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .08, .01))
+```
+
+As we can see, this is another variable that is extremely postive skewed and has
+outliers at the extremes. This variable will need to be transformed as needed if
+used in a regression.
+
+***
+### Density
+
+**Density:**
+The density of water is close to that of water depending on the percent alcohol
+and sugar content.
+
+```{r Density}
+# Density histogram.
+do_histogram("density", .0004) +
+  ggtitle("Density") +
+  scale_x_continuous(~ g/cm^3,
+                     breaks = seq(0.99, 1.004, .002)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .14, .01))
+```
+
+The distribution for density looks surprisingly normal compared to the majority
+of the other variables. We can clearly see that on average, the density of Vinho
+Verde red win is around 0.997 g/cm^3^, and it looks fairly balanced on both
+sides. There may be a need later on to check for outliers that fall outside the
++/- 1.5 x IQR range.
+
+***
+### pH Level
+
+**pH Level:**
+Describes how acidic or basic a wine is on a scale from 0 (very acidic) to 14
+(very basic); most wines are between 3-4 on the pH scale.
+
+```{r pH_Level}
+# pH level histogram.
+do_histogram("pH") +
+  ggtitle("pH Level") +
+  scale_x_continuous("0 - Very Acidic, 14 - Very Basic",
+                     breaks = seq(2.7, 4, .1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .15, .01))
+```
+
+The average pH level makes Vinho Verde red wines a little acidic. According to
+general online searches, it's about on par with diet sodas. The shape of the
+distribution is also look fairly normal and there does not seem to be a need to
+transform the variable.
+
+***
+### Potassium Sulphate
+
+**Potassium Sulphate:**
+A wine additive which can contribute to sulfur dioxide gas (S0~2~) levels, which
+acts as an antimicrobial and antioxidant.
+
+
+```{r Potassium_Sulphate}
+# Potassium sulphate histogram.
+do_histogram("potassium.sulphate", .035) +
+  ggtitle("Potassium Sulphate") +
+  scale_x_continuous(~ g/dm^3,
+                     breaks = seq(.3, 2, .1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .15, .01))
+```
+
+Potassium sulphate generally has the same distribution as salt and sugar. It is
+positively skewed and has extreme outliers. A log~10~ transform and removal of
+outliers will be done now to see if it helps improve its distribution.
+
+```{r Potassium_Sulphate_Transform}
+# Potassium sulphate log10 transform and outliers removed.
+do_histogram("log10(potassium.sulphate)", .016) +
+  ggtitle("Potassium Sulphate" ~ log[10] ~ "Transformed and Outliers Removed") +
+  scale_x_continuous(~ log[10](g/dm^3),
+                     breaks = seq(-.4, .05, .05),
+                     limits = lu_bounds("potassium.sulphate", "log10")) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .16, .01))
+```
+
+As expected, there is a significant improvement after transformining and
+removing the outliers.
+
+***
+### Alcohol
+
+**Alcohol:**
+The percent alcohol content of the wine.
+
+```{r Alcohol}
+# Alcohol histogram.
+do_histogram("alcohol", .2) +
+  ggtitle("Alcohol % by Volume") +
+  scale_x_continuous("Alcohol %",
+                     breaks = seq(0, 15, 1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .16, .01))
+```
+
+The alcohol variable has an obvious postive skew with a few obvious outlers.
+Unfortunately, a suitable transformation was not found that could improve the
+skew.
+
+***
+### Wine Quality
+
+**Wine Quality:**
+Output variable (based on sensory data): QUALITY (score between 0 and 10)
+
+```{r Wine_Qualiy}
+# Wine quality barplot.
+do_barplot("quality") +
+  ggtitle("Wine Quality") +
+  scale_x_continuous("0 - Worst, 10 - Best", breaks = seq(0, 10, 1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .45, .05))
+```
+
+This variable is the response variable in the data set and it is the main
+feature of interest. The shape of the bar plot does not look normal, but because
+the values are discrete values from 3 to 8, it is not completely surprising. We
+can see the majority of the assigned values are either 5 or 6. So the wine
+tasters on average gave quality scores of 5 or 6. It would be interesting to
+find out later what characterisitcs differentiates a 3 from an 8.
+
+***
+# Univariate Analysis
+
+### What is the structure of your dataset?
+The red wine data set has 1599 observations of Vinho Verde red wine samples
+originally across 13 variables. The first variable was removed because it was
+the row number and it served no purpose. The next 12 variables are all objective
+measurements of physical or chemical properties of the the red wine sample. The
+last variable is the wine quality assigned to that specific red wine sample.
+
+### What is/are the main feature(s) of interest in your dataset?
+As stated above, the primary feature of interest is the wine quality.
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+I think at this point, most of the variables could support investigating the
+wine quality variable. The only questionable variable would be citric acid, but
+that's only because I could not immediately determine a way to reasonably
+normalize it. This means that it may be difficult to create a regression model
+using citric acid.
+
+### Did you create any new variables from existing variables in the dataset?
+No new variables were created.
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+Most of the variables had visibile issues with normality and some needed a
+transformation to make them look more normal, but it's not perfect. This leads
+to an issue on how to proceed with analysis that requires normalized variables.
+In the strictest sense, if a variable fails a normality test (ie qq-plot,
+Shapiro-Wilks, etc), then any analysis that uses said variable is meaningless.
+
+Knowing this, I would assert that information can still be gained from doing
+bivariate and multivariate plots. Perhaps by doing so, it may help determine a
+direction for doing a regression or how to proceed using problem variables.
+
+***
+# Bivariate Plots Section
+
+There are many possible bivariate plots that can be done with the 12 variables.
+Instead of doing every single possible combination, I'll start with a Spearman
+method correlation matrix to help narrow our focus. The Spearman method is
+appropriate for this instance because it is non-parametric and thus does not
+require variable normality and it is robust to outliers. I am strictly using
+this matrix as a guide.
+
+***
+## Spearman Correlation Matrix
+```{r Corr_Matrix_Spearman}
+# Spearman Correlation Matrix.
+ggcorr(rwData, label = TRUE, hjust = 1, size = 3, layout.exp = 2,
+       method = c("pairwise", "spearman")) +
+  ggtitle("Spearman Method Correlation Matrix")
+```
+
+What immediately stands out from the matrix are the following correlations:
+
+**Very Strong Correlation (.8 to 1):**
+
+- Total Sulfur Dioxide vs. Free Sulfur Dioxide
+
+**Strong Correlation (.6 to .79):**
+
+- Density vs Tartaric Acid
+
+- pH Level vs Tartaric ACid
+
+- Tartaric Acid vs. Citric Acid
+
+- Acetic Acid vs Citric Acid
+
+**Moderate Correlation (.4 to .59):**
+
+- Quality vs Acetic Acid, Potassium Sulphate, and Alcohol
+
+- Density vs Citric Acid, Residual Sugar, Sodium Chloride, and Alcohol
+
+- pH Level vs Citric Acid
+
+I'll use the above list to set the order in which to investigate the bivariate
+plots. Before doing so, the following are the custom functions I'll use to
+display the scatterplots and the boxplots.
+
+```{r Bivariate_Custom_Functions}
+# Custom scatterplot template.
+do_scatterplot <- function(varName1, varName2) {
+  p <- ggplot(aes_string(x = varName1, y = varName2), data = rwData) +
+    geom_jitter(alpha = .3,
+                col = 'green') +
+    geom_smooth(method = 'lm')
+  return(p)
+}
+
+# Custom boxplot template for bivariate plots.
+do_boxplot.b <- function(varName1, varName2) {
+  p <- ggplot(aes_string(x = varName1, y = varName2), data = rwData) +
+    geom_boxplot(outlier.color = 'red',
+                 alpha = .3,
+                 col = 'blue',
+                 fill = 'green') +
+    stat_boxplot(geom ='errorbar',
+                 width = .5,
+                 col = 'blue') +
+    stat_summary(fun.y = mean,
+                 geom ="point",
+                 shape = 5,
+                 size = 3)
+  return(p)
+}
+```
+
+***
+## Very Strong Correlation (.8 to 1) Bivariate Plots
+
+The first bivariate plot will be a scatterplot of free sulfur dioxide vs total
+sulfur dioxide. This is the only variable pairing identified by the matrix to
+have a very strong correlation. 
+
+```{r TSD_vs_FSD}
+# Display scatterplot of total vs free sulfur dioxide. Outliers are removed.
+do_scatterplot("free.sulfur.dioxide", "total.sulfur.dioxide") +
+  ggtitle("Total Sulfur Dioxide vs Free Sulfur Dioxide") +
+  scale_x_continuous("Free Sulfur Dioxide" ~ g/dm^3,
+                     limits = lu_bounds("free.sulfur.dioxide"),
+                     breaks = seq(0, 45, 5)) +
+  scale_y_continuous("Total Sulfur Dioxide" ~ g/dm^3,
+                     limits = lu_bounds("total.sulfur.dioxide"),
+                     breaks = seq(0, 120, 10))
+```
+
+We can see from the scatterplot that even if the line was not drawn, we could
+still see there is a very strong monotonic relationship. This relationship makes
+sense because total sulfur dioxide was described as a composite of both free
+sulfur dioxide (which we have data on), and bounded sulfur dioxide (no data).
+
+In terms of drawing additional insight into the data set, there isn't a whole
+lot of information in this scatterplot. Though if these variables are identified
+to be used in a multiple linear regression, it is now known to only select one
+or the other to avoid multicollinearity.
+
+***
+## Strong Correlation (.6 to .79) Bivariate Plots
+
+In this section, there are 4 variable pairings to consider:
+
+- Density vs Tartaric Acid
+
+- pH Level vs Tartaric ACid
+
+- Tartaric Acid vs. Citric Acid
+
+- Acetic Acid vs Citric Acid
+
+Let's start at the top of the list.
+
+***
+```{r D_vs_TA}
+# Display scatterplot of density vs tartaric acid. Outliers are removed.
+do_scatterplot("tartaric.acid", "density") +
+  ggtitle("Density vs Tartaric Acid") +
+  scale_x_continuous("Tartaric Acid" ~ g/dm^3,
+                     limits = lu_bounds("tartaric.acid"),
+                     breaks = seq(5, 12, 1)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+```
+
+We can definitely see the correlation between density and tartaric acid. As
+tartaric acid increases in red wine, the density also increases. Unfortunately,
+I do not have the knowledge to explain how the two variables physically relate
+to one another.
+
+***
+```{r pH_vs_TA}
+# Display scatterplot of pH level vs tartaric acid. Outliers are removed.
+do_scatterplot("tartaric.acid", "pH") +
+  ggtitle("pH Level vs Tartaric Acid") +
+  scale_x_continuous("Tartaric Acid" ~ g/dm^3,
+                     limits = lu_bounds("tartaric.acid"),
+                     breaks = seq(5, 12, 1)) +
+  scale_y_continuous("pH Level: 0 - Very Acidic, 14 - Very Basic",
+                     limits = lu_bounds("pH"),
+                     breaks = seq(2.7, 4, .1))
+```
+
+The relationship between the two variables is easy to discern. As the amount of
+tartaric acid increases, the pH level decreases; Therefore, making the red wine
+more acidic. The relationship between these two variables makes sense.
+
+***
+**Note:** For the following plot and several others, they involve citric acid
+which was found in the univariate plots section to be difficult to normalize in
+a reasonable manner; However, that does not prevent us from making
+generalizations from the bivariate plots.
+
+***
+```{r TA_vs_CA}
+# Display scatterplot of tartaric acid vs citric acid. Outliers are removed.
+do_scatterplot("citric.acid", "tartaric.acid") +
+  ggtitle("Tartaric Acid vs Citric Acid") +
+  scale_x_continuous("Citric Acid" ~ g/dm^3,
+                     limits = lu_bounds("citric.acid"),
+                     breaks = seq(0, .8, .1)) +
+  scale_y_continuous("Tartaric Acid" ~ g/dm^3,
+                     limits = lu_bounds("tartaric.acid"),
+                     breaks = seq(5, 12, 1))
+```
+
+Here we see that tartaric acid and citric acid both increase and decrease
+together. This relationship suggests that grapes that were harvested earlier
+(and thus would have higher tartaric acid) were fermented for a shorter period
+of time. It is unknown at the moment what effect it has on wine quality.
+
+***
+```{r AA_vs_CA}
+# Display scatterplot of acetic acid vs citric acid. Outliers are removed.
+do_scatterplot("citric.acid", "acetic.acid") +
+  ggtitle("Acetic Acid vs Citric Acid") +
+  scale_x_continuous("Citric Acid" ~ g/dm^3,
+                     limits = lu_bounds("citric.acid"),
+                     breaks = seq(0, .8, .1)) +
+  scale_y_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(.4, 1, .1))
+```
+
+We can see citric and acetic acid increase and decrease in opposite directions.
+It could be that when citric acid is in higher amounts, the wine spent less time
+fermenting, and thus would have less acetic acid which is a microbial byproduct
+of fermentation.
+
+***
+## Moderate Correlation (.4 to .59) Bivariate Plots
+
+In this section, there will be 8 bivariate plots. The first three will involve
+the main feature of interest - wine quality. I will use boxplots due to the
+discrete values of the variable quality:
+
+- Quality vs Acetic Acid, Potassium Sulphate, and Alcohol
+
+The remaining 5 variable pairs will be done with scatterplots:
+
+- Density vs Citric Acid, Residual Sugar, Sodium Chloride, and Alcohol
+
+- pH Level vs Citric Acid
+
+***
+```{r AA_vs_Q}
+# Display boxplot of acetic acid vs quality. Outliers are removed.
+do_boxplot.b("factor(quality)", "acetic.acid") +
+  ggtitle("Acetic Acid vs Wine Quality") +
+  scale_x_discrete("Wine Quality: 0 - Worst, 10 - Best") +
+  scale_y_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(0, 1, .1))
+```
+
+In this first plot involving wine quality, We see that as acetic acid decreases,
+the assigned wine quality increases. This may not come as a suprise and it makes
+perfect sense because acetic acid is vinegar.
+
+***
+```{r PS_vs_Q}
+# Display boxplot of potassium sulphate vs quality. Outliers are removed.
+do_boxplot.b("factor(quality)", "potassium.sulphate") +
+  ggtitle("Potassium Sulphate vs Wine Quality") +
+  scale_x_discrete("Wine Quality: 0 - Worst, 10 - Best") +
+  scale_y_continuous("Potassium Sulphate" ~ g/dm^3,
+                     limits = lu_bounds("potassium.sulphate"),
+                     breaks = seq(.3, 1, .1))
+```
+
+As the potassium sulphate additive is increased, wine quality also increases.
+The reason why may not seem clear. Potassium sulphate is described as an
+additive used as an antimicrobial and antioxidant. I do not have enough
+knowledge as to how and why this directly translates to higher wine quality
+other than this plot shows there is a correlation.
+
+***
+```{r A_vs_Q}
+# Display boxplot of alcohol vs quality. Outliers are removed.
+do_boxplot.b("factor(quality)", "alcohol") +
+  ggtitle("Alcohol vs Wine Quality") +
+  scale_x_discrete("Wine Quality: 0 - Worst, 10 - Best") +
+  scale_y_continuous("Alcohol % by Volume",
+                     limits = lu_bounds("alcohol"),
+                     breaks = seq(0, 15, 1))
+```
+
+In this last boxplot involving wine quality, it shows that as alcohol %
+increases, so does the wine quality given. An argument can be made that people
+enjoy alcohol in their wine. Though I do not have proof to support this, I
+believe it is a reasonable assumption.
+
+***
+The remaining moderate correlation scatterplots involve density vs 4 compounds,
+and pH vs citric acid. They will be shown in succession in the following order:
+
+- Density vs Citric Acid, Residual Sugar, Sodium Chloride, and Alcohol
+
+And the last one:
+
+- pH Level vs Citric Acid
+
+***
+```{r D_vs_CA_RS_SC_A}
+# Display scatterplot of density vs citric acid. Outliers are removed.
+do_scatterplot("citric.acid", "density") +
+  ggtitle("Density vs Citric Acid") +
+  scale_x_continuous("Citric Acid" ~ g/dm^3,
+                     limits = lu_bounds("citric.acid"),
+                     breaks = seq(0, .8, .1)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+
+# Display scatterplot of density vs residual sugar. Outliers are removed.
+do_scatterplot("residual.sugar", "density") +
+  ggtitle("Density vs Residual Sugar") +
+  scale_x_continuous("Residual Sugar" ~ g/dm^3,
+                     limits = lu_bounds("residual.sugar"),
+                     breaks = seq(1, 3.5, .25)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+
+# Display scatterplot of density vs sodium chloride. Outliers are removed.
+do_scatterplot("sodium.chloride", "density") +
+  ggtitle("Density vs Sodium Chloride") +
+  scale_x_continuous("Sodium Chloride" ~ g/dm^3,
+                     limits = lu_bounds("sodium.chloride"),
+                     breaks = seq(.04, .12, .01)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+
+# Display scatterplot of density vs alcohol. Outliers are removed.
+do_scatterplot("alcohol", "density") +
+  ggtitle("Density vs Alcohol") +
+  scale_x_continuous("Alcohol % by Volume",
+                     limits = lu_bounds("alcohol"),
+                     breaks = seq(0, 15, 1)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+```
+
+For the density plots, we see that as citric acid, residual sugar, and sodium
+chloride increase, density increases. As the amount of alcohol increases,
+density decreases.
+
+***
+```{r pH_vs_CA}
+# Display scatterplot of pH level vs citric acid. Outliers are removed.
+do_scatterplot("citric.acid", "pH") +
+  ggtitle("pH Level vs Citric Acid") +
+  scale_x_continuous("Citric Acid" ~ g/dm^3,
+                     limits = lu_bounds("citric.acid"),
+                     breaks = seq(0, .8, .1)) +
+  scale_y_continuous("pH Level: 0 - Very Acidic, 14 - Very Basic",
+                     limits = lu_bounds("pH"),
+                     breaks = seq(2.7, 4, .1))
+```
+
+This scatterplot should not really come as a surprise. As citric acid increases,
+the pH level decreases and thus the red wine is more acidic.
+
+***
+## Extra Plot: Very Low Correlation
+
+Out of curiousity, I wanted to see what a very low correlation plot looks like.
+In the following, I chose to do a density vs acetic acid scatterplot.
+
+```{r VLow_Correlation}
+# Display density vs acetic acid scatterplot.
+do_scatterplot("acetic.acid", "density") +
+  ggtitle("Density vs Acetic Acid") +
+  scale_x_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(0, 1, .1)) +
+  scale_y_continuous("Density" ~ g/cm^3,
+                     limits = lu_bounds("density"),
+                     breaks = seq(0.99, 1.004, .001))
+```
+
+Unsurprisingly, the scatterplot looks evenly spaced out across the graph. The
+overlayed linear model appears to have a slope that is near zero. In other
+words, as the amount of acetic acid changes, the density doesn't really change.
+The two variables virtually have no relation to one another.
+
+***
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset?
+
+What was found in regards to wine quality was quite interesting. The most
+important I felt was that there wasn't a very strong nor strong correlation
+between wine quality and any other variable. At best, there were only 3
+variables that had a moderate correlation with wine quality: acetic acid,
+potassium sulphate, and alcohol. What this tells me is that before even making a
+predictive model, I can guess with certainty that the R^2^ value would probably
+be around .5 or lower. The remaining variables had either low or very low
+correlation with wine quality.
+
+A closer look at the plots for potassium sulphate and alcohol showed that they
+had a positive correlation with wine quality. The assigned wine quality,
+alcohol, and potassium sulphate increased and decreased together. It was
+difficult to determine why an increase in potassium sulphate would increase the
+wine quality assigned. Changes in alcohol percentages along with wine quality
+assigned appears to be straight forward.
+
+On the other end, changes in acetic acid had a negative correlation with wine
+quality assigned. Acetic acid, as noted in the univariate section, is vinegar.
+It is a byproduct of fermentation that does not have a good impact on tase.
+So less acetic acid relates to higher wine quality.
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+
+What I found interesting was that both tartaric acid and citric acid have a
+negative correlation with pH level which makes sense; However, acetic acid has
+a very weak positive correlation. It doesn't make sense to me because all three
+are acids, but only two impacted pH level in an expected manner.
+
+Another interesting relationship were those that involved density. Out of all
+the density plots paired with a compound, only alcohol had a negative
+relationship.
+
+The final interesting relationship is actually between the three acids.
+Tartaric and citric both have a positive correlation. Whereas citric acid has a
+strong negative correlation with acetic acid which reduces wine quality
+assigned. The implication is that indirectly, the presence of tartaric acid and
+citric acid have positive impact on wine quality. The correlation matrix does
+show that both tartaric and citric have a weak positive correlation to wine
+quality.
+
+### What was the strongest relationship you found?
+
+The strongest relationship found was between total sulfure dioxide and free
+sulfure dioxide. This is due to the fact that total sulfur dioxide is a
+composite of free sulfure dioxide and bounded sulfur dioxide (which is not a
+variable in the data set). The clearest use for this information is that when
+a regression is done, either total or free sulfur dioxide should be selected to
+avoid multicollinearity.
+
+***
+# Multivariate Plots Section
+
+In the multivariate plots section, I'll use the information from the previous
+portions and combine them into a more thorough plot. I'm going to focus solely
+on the variable of interest - wine quality. It was shown in the previous
+bivariate section that alcohol %, acetic acid, and potassium sulphate had
+moderate correlation with wine quality. For the initial plot, I decided to
+consider only using alcohol % and acetic acid first because those two variables
+are easier to explain their relation to wine quality.
+
+```{r WQ_A_AA_Multivariate_Plot}
+# Wine Quality vs Acetic acid vs Alcohol.
+ggplot(aes(x = alcohol, y = acetic.acid), data = rwData) +
+  geom_jitter(aes(color = factor(quality)),
+              size = 3) +
+  ggtitle("Wine Quality vs Acetic Acid vs Alcohol %") +
+  scale_x_continuous("Alcohol % by Volume",
+                     limits = lu_bounds("alcohol"),
+                     breaks = seq(0, 15, 1)) +
+  scale_y_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(0, 1, .1)) +
+  scale_color_manual("Wine Quality",
+                     values = c("#FFFF00", "#FFCC00", "#FF9900",
+                                "#FF6600", "#FF3300", "#FF0000"),
+                     guide = guide_legend(reverse = TRUE))
+```
+
+We can clearly see that as we go from the upper left to the lower right corner,
+wine quality increases (becomes redder). This shows that a reduction in acetic
+acid and an increase in alcohol percentage on average contribute toward a higher
+wine quality assessment. There is also a barely perceptible relationship between
+alcohol % and acetic acid amount. It looks like as alcohol % increases, acetic
+acid amount decreases.
+
+Now let's consider potassium sulphate. I've replaced alcohol % from the
+previous scatterplot with potassium sulphate. Let's see the difference.
+
+```{r WQ_A_APS_Multivariate_Plot}
+ggplot(aes(x = potassium.sulphate, y = acetic.acid), data = rwData) +
+  geom_jitter(aes(color = factor(quality)),
+              size = 3) +
+  ggtitle("Wine Quality vs Acetic Acid vs Potassium Sulphate ") +
+  scale_x_continuous("Potassium Sulphate" ~ g/dm^3,
+                     limits = lu_bounds("potassium.sulphate"),
+                     breaks = seq(.3, 1, .1)) +
+  scale_y_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(0, 1, .1)) +
+  scale_color_manual("Wine Quality",
+                     values = c("#FFFF00", "#FFCC00", "#FF9900",
+                                "#FF6600", "#FF3300", "#FF0000"),
+                     guide = guide_legend(reverse = TRUE))
+```
+
+In this plot, we also see the same general trend as in the previous plot. An
+increase in potassium sulphate and decrease in acetic acid relate to an increase
+in wine quality. Between potassium sulphate and acetic acid, we can see that on
+average as potassium sulphate increases, acetic acid decreases. The relationship
+could possibly be due to potassium sulphate being used as an antimicrobial
+compound and acetic acid is a byproduct of microbes. So potassium sulphate
+coincides with a reduction of acetic acid because there are less microbes.
+However, this is only speculation. This doesn't provide a better understanding
+of how potassium sulphate contributes to the red wine making process other than
+"more is better."
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+The main feature of interest is wine quality. The plots in this section showed
+how wine quality assigned was affected by alcohol %, acetic acid, and potassium
+sulphate amounts. The multivariated plots strengthened the understanding of
+the relationships between these variables.
+
+### Were there any interesting or surprising interactions between features?
+There were no other interesting nor surprising interactions between features.
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the \
+strengths and limitations of your model.
+I chose not to create a model due to the characteristics of the variables and
+compounded by my shallow understanding of the topic. Most of the variables had
+severe skew and outlier issues. Without investing significant time to correct
+for non-normal distribution and also additional research to determine the causes
+for outliers, it makes creating a robust and air-tight model difficult. In the
+end, I made a judgement call not to perform a multiple linear regression
+analysis.
+
+------
+
+# Final Plots and Summary
+
+### Plot One: Alcohol
+```{r echo = FALSE, Plot_One}
+# Alcohol histogram.
+do_histogram("alcohol", .2) +
+  ggtitle("Alcohol % by Volume") +
+  scale_x_continuous("Alcohol %",
+                     breaks = seq(0, 15, 1)) +
+  scale_y_continuous(labels = percent,
+                     breaks = seq(0, .16, .01))
+```
+
+### Description One
+
+This univariate plot was selected due to its simplicity in presenting one of the
+various factors in red wine making. We can clearly see the mean and median would
+reside between 9.5% to 10.5%. This histogram also shows a positive skew which
+suggests perhaps there was intent to make red wines with higher alcohol %. On
+the low-end, there is a severe decrease in the number of red wines that have
+less than 9% alcohol which suggests that 9% is the target minimum the wine
+makers are willing to allow.
+
+### Plot Two: Wine Quality and Alcohol
+```{r echo = FALSE, Plot_Two}
+# Display boxplot of alcohol vs quality. Outliers are removed.
+do_boxplot.b("factor(quality)", "alcohol") +
+  ggtitle("Alcohol vs Wine Quality") +
+  scale_x_discrete("Wine Quality: 0 - Worst, 10 - Best") +
+  scale_y_continuous("Alcohol % by Volume",
+                     limits = lu_bounds("alcohol"),
+                     breaks = seq(0, 15, 1))
+```
+
+### Description Two
+
+In this plot compared to the previous plot, we now include the main feature of
+interest, wine quality. This boxplot makes it clear that the wine testers do
+indeed assign on average higher quality values to red wines with higher alcohol
+content. The trend for the red wines seems to be that in order to obtain higher
+wine quality, the wine should have greater than 10.5% alcohol. The highest rated
+wines had on average near 12% alcohol.
+
+### Plot Three: Wine Quality, Alcohol, and Acetic Acid
+```{r echo = FALSE, Plot_Three}
+# Wine Quality vs Acetic acid vs Alcohol.
+ggplot(aes(x = alcohol, y = acetic.acid), data = rwData) +
+  geom_jitter(aes(color = factor(quality)),
+              size = 3) +
+  ggtitle("Wine Quality vs Acetic Acid vs Alcohol %") +
+  scale_x_continuous("Alcohol % by Volume",
+                     limits = lu_bounds("alcohol"),
+                     breaks = seq(0, 15, 1)) +
+  scale_y_continuous("Acetic Acid" ~ g/dm^3,
+                     limits = lu_bounds("acetic.acid"),
+                     breaks = seq(0, 1, .1)) +
+  scale_color_manual("Wine Quality",
+                     values = c("#FFFF00", "#FFCC00", "#FF9900",
+                                "#FF6600", "#FF3300", "#FF0000"),
+                     guide = guide_legend(reverse = TRUE))
+```
+
+### Description Three
+
+This final plot features wine quality evaluated along with two variables that
+were shown to have a very high correlation. We already know that higher alcohol
+content tends to mean higher wine quality, but what how does acetic acid affect
+wine quality? This plot clearly shows that acetic acid has a negative affect on
+wine quality. To be specific, the redder and higher wine quality observations
+tend to be in lower acetic acid range. This coincides with the earlier statement
+that acetic acid is vinegar and that is not a good for wine quality.
+
+Another relation shown is how acetic acid and alcohol % relate to each other.
+It's not terribly strong, but the relation between these two show that higher
+alcohol % on average is related to lower acetic acid amounts. My understandng
+is limited on why these two variables interact in this manner, but the trend
+is noticeable.
+
+In conclusion, high quality red wines contain higher amounts of alcohol, while
+containing low amounts of acetic acid.
+
+------
+
+# Reflection
+
+I found this EDA to be challenging because I personally do not drink wine so I
+have no background nor idea for the direction. Learning to use R made this
+difficult as well. Having a separate browser window open at all times for
+searching R commands and syntax was a must!
+
+That being said, I am fairly confident that acetic acid, alcohol percentage, and
+potassium sulphate amounts have the greatest influence on the wine quality
+assigned. I can also say for certain that citric and tartaric acids have an
+impact on pH level. Though I didn't do a thorough investigation down this path,
+the correlation matrix does show this behavior.
+
+In the future, perhaps a more in-depth exploration of the other variables can
+be done. It is also noted that a simple graph can be constructed from the
+correlation matrix values. This is how I would start a future EDA on this
+data set.
+
+# Online Resources
+
+https://winobrothers.com/2011/10/11/sulfur-dioxide-so2-in-wine/
+
+http://www.calwineries.com/learn/wine-chemistry/wine-acids/citric-acid
+
+http://www.calwineries.com/learn/wine-chemistry/wine-acids/tartaric-acid
+
+http://dx.doi.org/10.1016/j.dss.2009.05.016
+
+http://www.vinhoverde.pt/en
+
+http://waterhouse.ucdavis.edu/whats-in-wine/volatile-acidity
+
+[boundedSD]: https://winobrothers.com/2011/10/11/sulfur-dioxide-so2-in-wine/ "Bounded Sulfure Dioxide"
+
+[CalwineriesC]: http://www.calwineries.com/learn/wine-chemistry/wine-acids/citric-acid "Citric Acid"
+
+[calwineriesT]: http://www.calwineries.com/learn/wine-chemistry/wine-acids/tartaric-acid "Tartaric Acid"
+
+[Science Direct]: http://dx.doi.org/10.1016/j.dss.2009.05.016 "Science Direct"
+
+[Vinho Verde]: http://www.vinhoverde.pt/en "Vinho Verde"
+
+[Waterhouse Lab]: http://waterhouse.ucdavis.edu/whats-in-wine/volatile-acidity "Waterhouse Lab"
