@@ -1,14 +1,10 @@
 # Red Wine Exploratory Data Analysis
 
-This is my exploratory data analysis of the red wine data set for the Udacity Data Analyst project.
-
-### Installation
-
-Can view at: http://htmlpreview.github.io/?https://github.com/stephenchu530/Red_Wine_EDA/blob/master/RedWineEDA.html
+This is my exploratory data analysis for the red wine data set for the Udacity Data Analyst project.
 
 ### Usage
 
-TODO (in progress)
+Can view at: http://htmlpreview.github.io/?https://github.com/stephenchu530/Red_Wine_EDA/blob/master/RedWineEDA.html
 
 ### License
 
